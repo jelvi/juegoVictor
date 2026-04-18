@@ -10,7 +10,41 @@ const TYPE_LABELS = {
   number_letter: 'Número-letra',
   gps:           'GPS (búsqueda por localización)',
   trivia:        'Trivia (preguntas y respuestas)',
+  physical:      'Prueba física (requiere árbitro presencial)',
 };
+
+const PHYSICAL_PRESETS = [
+  {
+    name: 'Torre de vasos',
+    description: 'Construid una pirámide con 10 vasos (4 abajo, 3, 2 y 1 arriba) sobre una mesa plana. La torre debe mantenerse en pie sola durante 5 segundos.',
+    materials: ['10 vasos de plástico', 'Una mesa plana'],
+    refereeInstructions: 'La torre debe mantenerse en pie 5 segundos sin que nadie la toque. Si algún vaso cae, el equipo debe volver a empezar.',
+  },
+  {
+    name: 'Globo entre rodillas',
+    description: 'Todo el equipo debe transportar un globo inflado desde la línea de salida hasta el árbitro pasándolo entre las rodillas. ¡Sin usar las manos! Si el globo cae al suelo, volvéis al inicio.',
+    materials: ['1 globo inflado', 'Espacio libre de unos 10 metros'],
+    refereeInstructions: 'El globo no puede tocar el suelo ni las manos. Si cae, el equipo regresa al inicio. El recorrido debe ser de unos 10 metros.',
+  },
+  {
+    name: 'Avión de papel',
+    description: 'Cada miembro del equipo debe doblar un avión de papel y conseguir que vuele al menos 3 metros. Al menos la mitad del equipo debe lograrlo para superar la prueba.',
+    materials: ['1 hoja de papel por persona'],
+    refereeInstructions: 'Marcar una línea a 3 metros. Cada jugador tiene 2 intentos. La prueba se supera si al menos la mitad del equipo supera los 3 metros.',
+  },
+  {
+    name: 'Puntería',
+    description: 'Cada miembro del equipo tiene 2 lanzamientos para meter una pelota en el cubo desde la línea marcada. Necesitáis al menos 3 aciertos en total para superar la prueba.',
+    materials: ['5 pelotas de tenis o ping-pong', '1 cubo o cesta', 'Cinta adhesiva para marcar la línea (a 3 m)'],
+    refereeInstructions: 'Marcar línea a 3 metros del cubo. Cada jugador lanza 2 veces. Mínimo 3 aciertos en total para aprobar.',
+  },
+  {
+    name: 'Memoria en equipo',
+    description: 'El árbitro os mostrará 10 objetos durante 30 segundos. Luego los tapará y tendréis 1 minuto para escribir todos los que recordéis. Necesitáis recordar al menos 7 para pasar.',
+    materials: ['Papel y bolígrafo para apuntar (los tiene el árbitro)'],
+    refereeInstructions: 'Preparar 10 objetos variados en una bandeja. Mostrar 30 segundos, tapar. Dar 1 minuto para escribir. Necesitan al menos 7 correctos para aprobar.',
+  },
+];
 
 const DEFAULT_EMOJI_MAP = {
   '🍎': 'A', '🐝': 'B', '🌊': 'C', '🐬': 'D', '🐘': 'E',
@@ -41,6 +75,11 @@ function buildConfig(type, fields) {
       categoryId:      fields.triviaCatId ? Number(fields.triviaCatId) : null,
       difficulty:      fields.triviaDiff  || null,
     };
+    case 'physical':      return {
+      description:          fields.physDesc,
+      materials:            (fields.physMaterials || []).filter((m) => m.trim()),
+      refereeInstructions:  fields.physRefereeInstr,
+    };
     default:              return {};
   }
 }
@@ -63,6 +102,11 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
   const [gpsLng,    setGpsLng]    = useState(puzzle?.config?.lng     ?? '');
   const [gpsRadius, setGpsRadius] = useState(puzzle?.config?.radius  ?? 15);
   const [gpsLocating, setGpsLocating] = useState(false);
+
+  // Physical
+  const [physDesc,            setPhysDesc]            = useState(puzzle?.config?.description          || '');
+  const [physMaterials,       setPhysMaterials]       = useState(puzzle?.config?.materials            || []);
+  const [physRefereeInstr,    setPhysRefereeInstr]    = useState(puzzle?.config?.refereeInstructions  || '');
 
   // Trivia
   const [triviaMode,   setTriviaMode]   = useState(puzzle?.config?.mode            || 'multiple');
@@ -96,12 +140,17 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
       setPreview(`${triviaQPT} preguntas · ${modeLabel}`);
       return;
     }
+    if (type === 'physical') {
+      const matCount = physMaterials.filter((m) => m.trim()).length;
+      setPreview(physDesc ? `${physDesc}${matCount ? ` · ${matCount} material(es)` : ''}` : '');
+      return;
+    }
     if (!solution) { setPreview(''); return; }
     try {
       const cfg = buildConfig(type, { shift, startNumber, emojiMap });
       setPreview(clientEncode(type, solution, cfg));
     } catch { setPreview(''); }
-  }, [type, solution, shift, startNumber, emojiMap, gpsHint, triviaMode, triviaQPT]);
+  }, [type, solution, shift, startNumber, emojiMap, gpsHint, triviaMode, triviaQPT, physDesc, physMaterials]);
 
   async function useMyLocation() {
     if (!navigator.geolocation) { setError('GPS no disponible en este dispositivo.'); return; }
@@ -131,11 +180,18 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
       }
     }
 
+    // Validación Physical
+    if (type === 'physical') {
+      if (!physDesc.trim()) { setError('La descripción de la prueba es obligatoria.'); setSaving(false); return; }
+    }
+
     const config = buildConfig(type, { shift, startNumber, emojiMap, gpsHint, gpsLat, gpsLng, gpsRadius,
-      triviaMode, triviaQPT, triviaSelMode, triviaCatId, triviaDiff });
+      triviaMode, triviaQPT, triviaSelMode, triviaCatId, triviaDiff,
+      physDesc, physMaterials, physRefereeInstr });
     const effectiveSolution =
-      type === 'gps'    ? 'GPS_LOCATION' :
-      type === 'trivia' ? 'TRIVIA'       : solution;
+      type === 'gps'      ? 'GPS_LOCATION' :
+      type === 'trivia'   ? 'TRIVIA'       :
+      type === 'physical' ? 'PHYSICAL'     : solution;
     const body = { title, description, type, config, solution: effectiveSolution, order_index: Number(orderIndex) };
 
     try {
@@ -339,8 +395,95 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
         </div>
       )}
 
-      {/* Solución para tipos no-GPS y no-trivia */}
-      {type !== 'gps' && type !== 'trivia' && (
+      {/* Campos prueba física */}
+      {type === 'physical' && (
+        <div className="space-y-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
+          {/* Ejemplos / plantillas */}
+          <div>
+            <label className="label">Cargar ejemplo</label>
+            <div className="flex gap-2 flex-wrap">
+              {PHYSICAL_PRESETS.map((p) => (
+                <button
+                  key={p.name}
+                  type="button"
+                  className="text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1.5 rounded-lg border border-orange-300 transition-colors"
+                  onClick={() => {
+                    setPhysDesc(p.description);
+                    setPhysMaterials([...p.materials]);
+                    setPhysRefereeInstr(p.refereeInstructions);
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Pulsa un ejemplo para rellenar los campos automáticamente. Luego puedes editar lo que quieras.</p>
+          </div>
+
+          {/* Descripción */}
+          <div>
+            <label className="label">Descripción de la prueba <span className="text-red-500">*</span></label>
+            <textarea
+              className="input"
+              rows={3}
+              placeholder="Describe qué tiene que hacer el equipo…"
+              value={physDesc}
+              onChange={(e) => setPhysDesc(e.target.value)}
+              required
+            />
+          </div>
+
+          {/* Materiales */}
+          <div>
+            <label className="label">Material necesario</label>
+            <p className="text-xs text-gray-400 mb-2">El equipo verá esta lista como checklist interactivo</p>
+            {physMaterials.map((mat, i) => (
+              <div key={i} className="flex gap-2 mb-2">
+                <input
+                  className="input flex-1 text-sm"
+                  placeholder={`Material ${i + 1}…`}
+                  value={mat}
+                  onChange={(e) => {
+                    const updated = [...physMaterials];
+                    updated[i] = e.target.value;
+                    setPhysMaterials(updated);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="text-red-400 hover:text-red-600 px-2 text-lg leading-none"
+                  onClick={() => setPhysMaterials(physMaterials.filter((_, j) => j !== i))}
+                >
+                  ✗
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-sm text-orange-600 hover:text-orange-800 font-medium"
+              onClick={() => setPhysMaterials([...physMaterials, ''])}
+            >
+              + Añadir material
+            </button>
+          </div>
+
+          {/* Instrucciones árbitro */}
+          <div>
+            <label className="label">Instrucciones para el árbitro</label>
+            <textarea
+              className="input"
+              rows={2}
+              placeholder="Qué debe comprobar el árbitro para aprobar la prueba…"
+              value={physRefereeInstr}
+              onChange={(e) => setPhysRefereeInstr(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">Solo visible en el panel en vivo del árbitro. El equipo no lo ve.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Solución para tipos no-GPS y no-trivia y no-physical */}
+      {type !== 'gps' && type !== 'trivia' && type !== 'physical' && (
         <div>
           <label className="label">Solución (texto en claro)</label>
           <input className="input" value={solution} onChange={(e) => setSolution(e.target.value)} required />
@@ -350,9 +493,13 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
       {preview && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
           <p className="text-xs text-gray-500 mb-1">
-            {type === 'gps' ? 'Pista que verán los equipos:' : 'Texto cifrado que verán los equipos:'}
+            {type === 'gps'      ? 'Pista que verán los equipos:'
+            : type === 'physical' ? 'Descripción que verán los equipos:'
+            :                       'Texto cifrado que verán los equipos:'}
           </p>
-          <p className={`font-bold text-amber-800 break-all ${type === 'gps' ? 'text-base italic' : 'font-mono text-lg'}`}>
+          <p className={`font-bold text-amber-800 break-all ${
+            type === 'gps' || type === 'physical' ? 'text-base italic' : 'font-mono text-lg'
+          }`}>
             {preview}
           </p>
         </div>

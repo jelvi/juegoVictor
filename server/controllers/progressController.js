@@ -116,11 +116,13 @@ async function getGameProgress(req, res) {
   const { rows } = await pool.query(
     `SELECT
        tp.*,
-       t.name  AS team_name,
-       p.title AS puzzle_title,
+       t.name   AS team_name,
+       p.title  AS puzzle_title,
+       p.type   AS puzzle_type,
+       p.config AS puzzle_config,
        p.order_index
      FROM team_progress tp
-     JOIN teams  t ON t.id = tp.team_id
+     JOIN teams   t ON t.id = tp.team_id
      JOIN puzzles p ON p.id = tp.puzzle_id
      WHERE t.game_id = $1
      ORDER BY t.name, p.order_index`,

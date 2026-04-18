@@ -105,6 +105,12 @@ async function getCurrentPuzzle(req, res) {
 
     const { solution, ...safePuzzle } = puzzle;
 
+    // ── Physical: ocultar instrucciones del árbitro ───────────────────────────
+    if (safePuzzle.type === 'physical' && safePuzzle.config) {
+      const { refereeInstructions, ...safeConfig } = safePuzzle.config;
+      safePuzzle.config = safeConfig;
+    }
+
     // ── GPS: ocultar coordenadas reales, enviar como _targetLat/Lng ──────────
     if (safePuzzle.type === 'gps' && safePuzzle.config) {
       const { lat, lng, hint, radius, encodedText } = safePuzzle.config;

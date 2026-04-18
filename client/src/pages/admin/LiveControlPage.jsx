@@ -83,15 +83,21 @@ export default function LiveControlPage({ auth }) {
               <p className="text-gray-400 text-center py-8">No hay respuestas pendientes de revisión.</p>
             )}
             {pendingReview.map((p) => {
-              // Detectar si es un check-in GPS
-              let gpsData = null;
+              // Detectar tipo de respuesta
+              let gpsData      = null;
+              let isPhysical   = false;
               try {
                 const parsed = JSON.parse(p.submitted_answer);
                 if (parsed?.type === 'gps_checkin') gpsData = parsed;
               } catch {}
+              if (p.submitted_answer === 'PHYSICAL_READY' || p.puzzle_type === 'physical') {
+                isPhysical = true;
+              }
+
+              const borderClass = gpsData ? 'border-blue-200' : isPhysical ? 'border-orange-200' : '';
 
               return (
-                <div key={p.id} className={`card ${gpsData ? 'border-blue-200' : ''}`}>
+                <div key={p.id} className={`card ${borderClass}`}>
                   <div className="flex flex-wrap gap-2 justify-between items-start">
                     <div>
                       <span className="font-semibold">{p.team_name}</span>
@@ -101,6 +107,11 @@ export default function LiveControlPage({ auth }) {
                       {gpsData && (
                         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
                           📍 GPS
+                        </span>
+                      )}
+                      {isPhysical && (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
+                          🏃 Prueba física
                         </span>
                       )}
                       <StatusBadge status={p.status} />
@@ -121,6 +132,23 @@ export default function LiveControlPage({ auth }) {
                         {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString('es-ES') : ''}
                       </p>
                     </div>
+                  ) : isPhysical ? (
+                    <div className="mt-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 space-y-2">
+                      <p className="text-sm font-semibold text-orange-800">
+                        ¡El equipo está listo para ejecutar la prueba!
+                      </p>
+                      {p.puzzle_config?.refereeInstructions && (
+                        <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                          <p className="text-xs text-orange-500 font-semibold uppercase tracking-wide mb-1">
+                            Instrucciones para ti (árbitro)
+                          </p>
+                          <p className="text-sm text-gray-700">{p.puzzle_config.refereeInstructions}</p>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-400">
+                        Aviso enviado: {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString('es-ES') : ''}
+                      </p>
+                    </div>
                   ) : (
                     <div className="mt-2 bg-amber-50 rounded-lg px-3 py-2">
                       <p className="text-sm text-gray-500 mb-1">Respuesta enviada:</p>
@@ -137,14 +165,14 @@ export default function LiveControlPage({ auth }) {
                       disabled={reviewing[p.id]}
                       onClick={() => handleReview(p.id, 'approve')}
                     >
-                      ✓ Aprobar
+                      ✓ {isPhysical ? 'Prueba superada' : 'Aprobar'}
                     </button>
                     <button
                       className="btn-danger"
                       disabled={reviewing[p.id]}
                       onClick={() => handleReview(p.id, 'reject')}
                     >
-                      ✗ Rechazar
+                      ✗ {isPhysical ? 'No superada' : 'Rechazar'}
                     </button>
                   </div>
                 </div>

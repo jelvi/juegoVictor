@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import HintMaterial from '../../components/HintMaterial';
 import GpsCompass from '../../components/GpsCompass';
 import PuzzleTrivia from '../../components/PuzzleTrivia';
+import PhysicalChallenge from '../../components/PhysicalChallenge';
 import { api } from '../../utils/api';
 import { usePolling } from '../../hooks/usePolling';
 
@@ -14,6 +15,7 @@ const TYPE_LABELS = {
   number_letter: '🔢 Número-Letra',
   gps:           '📍 Búsqueda GPS',
   trivia:        '🧠 Trivia',
+  physical:      '🏃 Prueba Física',
 };
 
 const STATUS_MESSAGES = {
@@ -160,9 +162,10 @@ export default function GamePage() {
   const { puzzle, progress, triviaState } = current;
   const progressStatus = progress?.status;
   const statusInfo = STATUS_MESSAGES[progressStatus];
-  const canSubmit = !progressStatus || progressStatus === 'rejected';
-  const isGps    = puzzle.type === 'gps';
-  const isTrivia = puzzle.type === 'trivia';
+  const canSubmit  = !progressStatus || progressStatus === 'rejected';
+  const isGps      = puzzle.type === 'gps';
+  const isTrivia   = puzzle.type === 'trivia';
+  const isPhysical = puzzle.type === 'physical';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
@@ -223,6 +226,14 @@ export default function GamePage() {
               progressStatus={progressStatus}
               onRefresh={loadCurrent}
             />
+          ) : isPhysical ? (
+            /* ── Vista Prueba Física ───────────────────────────────── */
+            <PhysicalChallenge
+              puzzle={puzzle}
+              teamId={teamId}
+              progressStatus={progressStatus}
+              onRefresh={loadCurrent}
+            />
           ) : isGps ? (
             /* ── Vista GPS ─────────────────────────────────────────── */
             <>
@@ -260,16 +271,16 @@ export default function GamePage() {
           )}
         </div>
 
-        {/* Estado de la respuesta (no para trivia — gestiona su propio estado) */}
-        {statusInfo && !isTrivia && (
+        {/* Estado de la respuesta (no para trivia ni physical — gestionan su propio estado) */}
+        {statusInfo && !isTrivia && !isPhysical && (
           <div className={`rounded-xl border p-3 flex items-center gap-2 ${statusInfo.color}`}>
             <span className="text-xl">{statusInfo.icon}</span>
             <p className="text-sm font-medium">{statusInfo.text}</p>
           </div>
         )}
 
-        {/* Acción según tipo (no para trivia — tiene sus propios botones) */}
-        {canSubmit && !isTrivia && (
+        {/* Acción según tipo (no para trivia ni physical — tienen sus propios botones) */}
+        {canSubmit && !isTrivia && !isPhysical && (
           isGps ? (
             /* Botón GPS */
             <div className="card space-y-3 text-center">

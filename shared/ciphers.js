@@ -147,8 +147,20 @@ const trivia = {
   },
 };
 
+// ─── Prueba física ────────────────────────────────────────────────────────────
+// El equipo recoge el material, busca al árbitro y ejecuta la prueba.
+// El árbitro aprueba/rechaza manualmente desde el panel en vivo.
+const physical = {
+  encode(_text, config) {
+    return config.description || 'Prueba física';
+  },
+  generateHintMaterial(config) {
+    return { type: 'physical', materials: config.materials || [] };
+  },
+};
+
 // ─── Registro ─────────────────────────────────────────────────────────────────
-export const CIPHER_REGISTRY = { cesar, morse, mirror, emoji, number_letter, gps, trivia };
+export const CIPHER_REGISTRY = { cesar, morse, mirror, emoji, number_letter, gps, trivia, physical };
 
 export function listTypes() {
   return Object.keys(CIPHER_REGISTRY);

@@ -114,8 +114,23 @@ const number_letter = {
   },
 };
 
+// ─── GPS ──────────────────────────────────────────────────────────────────────
+// Para GPS el "texto cifrado" es la pista escrita por el admin.
+// Las coordenadas del destino viven solo en config.lat/lng y NUNCA
+// se incluyen en hint_material (el servidor las filtra antes de enviar al cliente).
+const gps = {
+  encode(_text, config) {
+    // Lo que se muestra como "texto del puzzle" es la pista, no un cifrado.
+    return config.hint || '';
+  },
+  generateHintMaterial(config) {
+    // Solo radio — coordenadas nunca al cliente.
+    return { type: 'gps', radius: Number(config.radius) || 15 };
+  },
+};
+
 // ─── Registro ─────────────────────────────────────────────────────────────────
-export const CIPHER_REGISTRY = { cesar, morse, mirror, emoji, number_letter };
+export const CIPHER_REGISTRY = { cesar, morse, mirror, emoji, number_letter, gps };
 
 export function listTypes() {
   return Object.keys(CIPHER_REGISTRY);

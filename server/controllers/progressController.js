@@ -1,5 +1,71 @@
 const pool = require('../db/pool');
 
+// Haversine en Node (no importamos shared/ciphers aquí para no depender de ESM)
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function gpsCheckin(req, res) {
+  const { teamId, puzzleId } = req.params;
+  const { lat, lng } = req.body;
+
+  if (lat == null || lng == null) {
+    return res.status(400).json({ error: 'Se requieren lat y lng' });
+  }
+
+  // Obtener configuración del puzzle (incluye lat/lng del destino — solo server-side)
+  const puzzleRes = await pool.query('SELECT config FROM puzzles WHERE id = $1', [puzzleId]);
+  if (!puzzleRes.rows[0]) return res.status(404).json({ error: 'Puzzle no encontrado' });
+
+  const cfg = puzzleRes.rows[0].config;
+  if (!cfg.lat || !cfg.lng) {
+    return res.status(400).json({ error: 'Este puzzle no tiene coordenadas configuradas' });
+  }
+
+  const distance = haversineDistance(Number(lat), Number(lng), Number(cfg.lat), Number(cfg.lng));
+  const radius   = Number(cfg.radius) || 15;
+
+  if (distance > radius) {
+    return res.status(422).json({
+      error: `Aún no has llegado. Estás a ${Math.round(distance)} m del destino.`,
+      distance: Math.round(distance),
+    });
+  }
+
+  // Dentro del radio — marcar como 'submitted' para revisión del admin
+  const existing = await pool.query(
+    'SELECT * FROM team_progress WHERE team_id = $1 AND puzzle_id = $2',
+    [teamId, puzzleId]
+  );
+  if (existing.rows[0]?.status === 'approved') {
+    return res.status(409).json({ error: 'Este punto ya fue aprobado' });
+  }
+
+  const answerMeta = JSON.stringify({
+    type: 'gps_checkin',
+    distance: Math.round(distance),
+    lat: Number(lat).toFixed(6),
+    lng: Number(lng).toFixed(6),
+  });
+
+  const { rows } = await pool.query(
+    `INSERT INTO team_progress (team_id, puzzle_id, status, submitted_answer, submitted_at)
+     VALUES ($1, $2, 'submitted', $3, NOW())
+     ON CONFLICT (team_id, puzzle_id)
+     DO UPDATE SET status = 'submitted', submitted_answer = $3, submitted_at = NOW(), reviewed_at = NULL
+     RETURNING *`,
+    [teamId, puzzleId, answerMeta]
+  );
+  res.status(201).json({ ...rows[0], distance: Math.round(distance) });
+}
+
 async function submitAnswer(req, res) {
   const { teamId, puzzleId } = req.params;
   const { answer } = req.body;
@@ -81,4 +147,4 @@ async function getRanking(req, res) {
   res.json(rows);
 }
 
-module.exports = { submitAnswer, reviewAnswer, getGameProgress, getRanking };
+module.exports = { gpsCheckin, submitAnswer, reviewAnswer, getGameProgress, getRanking };

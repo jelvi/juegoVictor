@@ -113,6 +113,21 @@ async function getCurrentPuzzle(req, res) {
     const prog = progressMap[puzzle.id];
     if (!prog || prog.status !== 'approved') {
       const { solution, ...safePuzzle } = puzzle;
+
+      // GPS: las coordenadas del destino se envían con prefijo _ para la brújula
+      // pero no se muestran en la UI (solo las usa GpsCompass internamente).
+      // La solución ("GPS_LOCATION") ya quedó excluida arriba.
+      if (safePuzzle.type === 'gps' && safePuzzle.config) {
+        const { lat, lng, hint, radius, encodedText } = safePuzzle.config;
+        safePuzzle.config = {
+          encodedText: encodedText || hint || '',
+          radius,
+          // prefijo _ para indicar "solo para la brújula, no mostrar al usuario"
+          _targetLat: lat,
+          _targetLng: lng,
+        };
+      }
+
       return res.json({
         puzzle: safePuzzle,
         progress: prog || null,

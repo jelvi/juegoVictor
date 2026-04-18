@@ -8,6 +8,7 @@ const TYPE_LABELS = {
   mirror:        'Espejo (texto invertido)',
   emoji:         'Emojis',
   number_letter: 'Número-letra',
+  gps:           'GPS (búsqueda por localización)',
 };
 
 const DEFAULT_EMOJI_MAP = {
@@ -26,6 +27,12 @@ function buildConfig(type, fields) {
     case 'mirror':        return {};
     case 'emoji':         return { map: fields.emojiMap };
     case 'number_letter': return { startNumber: Number(fields.startNumber) || 1 };
+    case 'gps':           return {
+      hint:   fields.gpsHint,
+      lat:    Number(fields.gpsLat),
+      lng:    Number(fields.gpsLng),
+      radius: Number(fields.gpsRadius) || 15,
+    };
     default:              return {};
   }
 }
@@ -42,25 +49,62 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
   const [startNumber, setStartNum]  = useState(puzzle?.config?.startNumber ?? 1);
   const [emojiMap, setEmojiMap]     = useState(puzzle?.config?.map || DEFAULT_EMOJI_MAP);
 
-  const [preview, setPreview]       = useState('');
-  const [saving, setSaving]         = useState(false);
-  const [error, setError]           = useState('');
+  // GPS
+  const [gpsHint,   setGpsHint]   = useState(puzzle?.config?.hint   || '');
+  const [gpsLat,    setGpsLat]    = useState(puzzle?.config?.lat     ?? '');
+  const [gpsLng,    setGpsLng]    = useState(puzzle?.config?.lng     ?? '');
+  const [gpsRadius, setGpsRadius] = useState(puzzle?.config?.radius  ?? 15);
+  const [gpsLocating, setGpsLocating] = useState(false);
+
+  const [preview, setPreview]     = useState('');
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
 
   // Actualizar preview en tiempo real
   useEffect(() => {
+    if (type === 'gps') {
+      setPreview(gpsHint || '');
+      return;
+    }
     if (!solution) { setPreview(''); return; }
     try {
       const cfg = buildConfig(type, { shift, startNumber, emojiMap });
       setPreview(clientEncode(type, solution, cfg));
     } catch { setPreview(''); }
-  }, [type, solution, shift, startNumber, emojiMap]);
+  }, [type, solution, shift, startNumber, emojiMap, gpsHint]);
+
+  async function useMyLocation() {
+    if (!navigator.geolocation) { setError('GPS no disponible en este dispositivo.'); return; }
+    setGpsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsLat(pos.coords.latitude.toFixed(7));
+        setGpsLng(pos.coords.longitude.toFixed(7));
+        setGpsLocating(false);
+      },
+      () => { setError('No se pudo obtener la ubicación.'); setGpsLocating(false); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
     setError('');
-    const config = buildConfig(type, { shift, startNumber, emojiMap });
-    const body = { title, description, type, config, solution, order_index: Number(orderIndex) };
+
+    // Validación GPS
+    if (type === 'gps') {
+      if (!gpsHint.trim())             { setError('La pista es obligatoria.'); setSaving(false); return; }
+      if (!gpsLat || !gpsLng)          { setError('Las coordenadas son obligatorias.'); setSaving(false); return; }
+      if (isNaN(Number(gpsLat)) || isNaN(Number(gpsLng))) {
+        setError('Coordenadas no válidas.'); setSaving(false); return;
+      }
+    }
+
+    const config = buildConfig(type, { shift, startNumber, emojiMap, gpsHint, gpsLat, gpsLng, gpsRadius });
+    // Para GPS la "solución" es un sentinel — la validación real es por proximidad
+    const effectiveSolution = type === 'gps' ? 'GPS_LOCATION' : solution;
+    const body = { title, description, type, config, solution: effectiveSolution, order_index: Number(orderIndex) };
 
     try {
       if (editing) {
@@ -135,15 +179,88 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
         </div>
       )}
 
-      <div>
-        <label className="label">Solución (texto en claro)</label>
-        <input className="input" value={solution} onChange={(e) => setSolution(e.target.value)} required />
-      </div>
+      {/* Campos GPS */}
+      {type === 'gps' && (
+        <div className="space-y-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div>
+            <label className="label">Pista para los jugadores</label>
+            <textarea
+              className="input"
+              rows={3}
+              placeholder="Ej: Buscad el lugar donde los niños juegan al fútbol…"
+              value={gpsHint}
+              onChange={(e) => setGpsHint(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Latitud</label>
+              <input
+                className="input font-mono"
+                placeholder="40.4168000"
+                value={gpsLat}
+                onChange={(e) => setGpsLat(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Longitud</label>
+              <input
+                className="input font-mono"
+                placeholder="-3.7038000"
+                value={gpsLng}
+                onChange={(e) => setGpsLng(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="btn-secondary w-full text-sm"
+            onClick={useMyLocation}
+            disabled={gpsLocating}
+          >
+            {gpsLocating ? '📡 Obteniendo ubicación…' : '📍 Usar mi ubicación actual'}
+          </button>
+
+          {gpsLat && gpsLng && (
+            <p className="text-xs text-blue-700 text-center font-mono">
+              {Number(gpsLat).toFixed(5)}, {Number(gpsLng).toFixed(5)}
+            </p>
+          )}
+
+          <div>
+            <label className="label">Radio de llegada (metros)</label>
+            <input
+              type="number"
+              className="input w-32"
+              min={5}
+              max={200}
+              value={gpsRadius}
+              onChange={(e) => setGpsRadius(Number(e.target.value))}
+            />
+            <p className="text-xs text-gray-400 mt-1">El jugador debe estar a menos de {gpsRadius} m del punto.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Solución para tipos no-GPS */}
+      {type !== 'gps' && (
+        <div>
+          <label className="label">Solución (texto en claro)</label>
+          <input className="input" value={solution} onChange={(e) => setSolution(e.target.value)} required />
+        </div>
+      )}
 
       {preview && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-          <p className="text-xs text-gray-500 mb-1">Texto cifrado que verán los equipos:</p>
-          <p className="font-mono text-lg font-bold text-amber-800 break-all">{preview}</p>
+          <p className="text-xs text-gray-500 mb-1">
+            {type === 'gps' ? 'Pista que verán los equipos:' : 'Texto cifrado que verán los equipos:'}
+          </p>
+          <p className={`font-bold text-amber-800 break-all ${type === 'gps' ? 'text-base italic' : 'font-mono text-lg'}`}>
+            {preview}
+          </p>
         </div>
       )}
 

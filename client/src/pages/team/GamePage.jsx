@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import HintMaterial from '../../components/HintMaterial';
+import GpsCompass from '../../components/GpsCompass';
 import { api } from '../../utils/api';
 import { usePolling } from '../../hooks/usePolling';
 
@@ -10,23 +11,24 @@ const TYPE_LABELS = {
   mirror:        '🪞 Texto Espejo',
   emoji:         '🎭 Emojis',
   number_letter: '🔢 Número-Letra',
+  gps:           '📍 Búsqueda GPS',
 };
 
 const STATUS_MESSAGES = {
   submitted: {
     icon:  '⏳',
     color: 'bg-blue-50 border-blue-200 text-blue-700',
-    text:  'Respuesta enviada. Esperando que el árbitro la revise…',
+    text:  'Enviado. Esperando que el árbitro lo confirme…',
   },
   rejected: {
     icon:  '❌',
     color: 'bg-red-50 border-red-200 text-red-700',
-    text:  '¡Respuesta incorrecta! Inténtalo de nuevo.',
+    text:  '¡No válido! Inténtalo de nuevo.',
   },
   approved: {
     icon:  '✅',
     color: 'bg-green-50 border-green-200 text-green-700',
-    text:  '¡Correcto! Pasando al siguiente puzzle…',
+    text:  '¡Correcto! Pasando al siguiente reto…',
   },
 };
 
@@ -37,12 +39,15 @@ export default function GamePage() {
   const teamName = sessionStorage.getItem('yincana_team_name') || 'Tu equipo';
   const nickname = sessionStorage.getItem('yincana_nickname') || '';
 
-  const [current, setCurrent]   = useState(null);   // { puzzle, progress, totalPuzzles, status }
-  const [ranking, setRanking]   = useState([]);
-  const [answer, setAnswer]     = useState('');
+  const [current, setCurrent]       = useState(null);
+  const [ranking, setRanking]       = useState([]);
+  const [answer, setAnswer]         = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError]       = useState('');
+  const [error, setError]           = useState('');
   const [showRanking, setShowRanking] = useState(false);
+  // GPS
+  const [gpsArrived, setGpsArrived] = useState(false);  // entró en radio
+  const [gpsCoords, setGpsCoords]   = useState(null);    // { lat, lng, distance }
 
   const loadCurrent = useCallback(async () => {
     try {
@@ -66,10 +71,12 @@ export default function GamePage() {
   usePolling(loadCurrent, 4000);
   usePolling(loadRanking, 4000);
 
-  // Limpiar respuesta al cambiar de puzzle
+  // Limpiar estado al cambiar de puzzle
   useEffect(() => {
     setAnswer('');
     setError('');
+    setGpsArrived(false);
+    setGpsCoords(null);
   }, [current?.puzzle?.id]);
 
   // Cargar ranking una vez que tenemos game_id
@@ -82,6 +89,23 @@ export default function GamePage() {
     setError('');
     try {
       await api.post(`/progress/${teamId}/${current.puzzle.id}/submit`, { answer: answer.trim() });
+      await loadCurrent();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleGpsCheckin() {
+    if (!gpsCoords) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.post(`/progress/${teamId}/${current.puzzle.id}/gps-checkin`, {
+        lat: gpsCoords.lat,
+        lng: gpsCoords.lng,
+      });
       await loadCurrent();
     } catch (e) {
       setError(e.message);
@@ -135,6 +159,7 @@ export default function GamePage() {
   const progressStatus = progress?.status;
   const statusInfo = STATUS_MESSAGES[progressStatus];
   const canSubmit = !progressStatus || progressStatus === 'rejected';
+  const isGps = puzzle.type === 'gps';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
@@ -186,15 +211,41 @@ export default function GamePage() {
             )}
           </div>
 
-          {/* Texto cifrado */}
-          <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
-            <p className="font-mono text-2xl sm:text-3xl font-bold text-amber-800 break-all leading-relaxed">
-              {puzzle.config?.encodedText}
-            </p>
-          </div>
+          {isGps ? (
+            /* ── Vista GPS ─────────────────────────────────────────── */
+            <>
+              {/* Pista escrita */}
+              <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
+                <p className="text-xs text-blue-500 font-semibold uppercase tracking-wide mb-1">Pista</p>
+                <p className="text-lg text-blue-900 font-medium italic">
+                  "{puzzle.config?.encodedText}"
+                </p>
+              </div>
 
-          {/* Material de ayuda */}
-          <HintMaterial hint={puzzle.hint_material} />
+              {/* Brújula y distancia — solo si el puzzle no está aprobado */}
+              {progressStatus !== 'approved' && (
+                <GpsCompass
+                  targetLat={puzzle.config?._targetLat}
+                  targetLng={puzzle.config?._targetLng}
+                  radius={puzzle.hint_material?.radius ?? 15}
+                  onArrive={(coords) => {
+                    setGpsArrived(true);
+                    setGpsCoords(coords);
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            /* ── Vista cifrado estándar ─────────────────────────────── */
+            <>
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
+                <p className="font-mono text-2xl sm:text-3xl font-bold text-amber-800 break-all leading-relaxed">
+                  {puzzle.config?.encodedText}
+                </p>
+              </div>
+              <HintMaterial hint={puzzle.hint_material} />
+            </>
+          )}
         </div>
 
         {/* Estado de la respuesta */}
@@ -205,31 +256,57 @@ export default function GamePage() {
           </div>
         )}
 
-        {/* Formulario de respuesta */}
+        {/* Acción según tipo */}
         {canSubmit && (
-          <form onSubmit={handleSubmit} className="card space-y-3">
-            <label className="label font-semibold">Tu respuesta descifrada</label>
-            <input
-              className="input text-lg"
-              placeholder="Escribe la solución…"
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              autoCapitalize="off"
-            />
-            {error && <p className="text-red-600 text-sm">{error}</p>}
-            <button
-              type="submit"
-              className="btn-primary w-full text-lg"
-              disabled={submitting || !answer.trim()}
-            >
-              {submitting ? 'Enviando…' : 'Enviar respuesta 🚀'}
-            </button>
-          </form>
+          isGps ? (
+            /* Botón GPS */
+            <div className="card space-y-3 text-center">
+              {error && <p className="text-red-600 text-sm">{error}</p>}
+              {gpsArrived ? (
+                <>
+                  <p className="text-green-700 font-semibold">
+                    📍 ¡Tu GPS confirma que estás en el lugar!
+                  </p>
+                  <button
+                    className="btn-success w-full text-lg"
+                    disabled={submitting}
+                    onClick={handleGpsCheckin}
+                  >
+                    {submitting ? 'Enviando…' : '¡He llegado! Avisar al árbitro 🚩'}
+                  </button>
+                </>
+              ) : (
+                <p className="text-gray-400 text-sm">
+                  El botón se activará cuando estés en el radio del destino.
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Formulario respuesta texto */
+            <form onSubmit={handleSubmit} className="card space-y-3">
+              <label className="label font-semibold">Tu respuesta descifrada</label>
+              <input
+                className="input text-lg"
+                placeholder="Escribe la solución…"
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                autoCapitalize="off"
+              />
+              {error && <p className="text-red-600 text-sm">{error}</p>}
+              <button
+                type="submit"
+                className="btn-primary w-full text-lg"
+                disabled={submitting || !answer.trim()}
+              >
+                {submitting ? 'Enviando…' : 'Enviar respuesta 🚀'}
+              </button>
+            </form>
+          )
         )}
 
         {progressStatus === 'submitted' && (
           <p className="text-center text-xs text-gray-400 animate-pulse">
-            Comprobando automáticamente cada 4 segundos…
+            Esperando confirmación del árbitro… (actualización automática)
           </p>
         )}
       </main>

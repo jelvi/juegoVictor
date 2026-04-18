@@ -33,6 +33,7 @@ router.patch('/puzzles/:id', requireAuth, puzzles.updatePuzzle);
 router.get('/teams/:id/puzzles/current', puzzles.getCurrentPuzzle);
 
 // ── Progress ──────────────────────────────────────────────────────────────────
+router.post('/progress/:teamId/:puzzleId/gps-checkin', progress.gpsCheckin);
 router.post('/progress/:teamId/:puzzleId/submit', progress.submitAnswer);
 router.patch('/progress/:id/review', requireAuth, progress.reviewAnswer);
 router.get('/games/:id/progress', requireAuth, progress.getGameProgress);

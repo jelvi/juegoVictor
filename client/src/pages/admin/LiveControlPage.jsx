@@ -82,40 +82,74 @@ export default function LiveControlPage({ auth }) {
             {pendingReview.length === 0 && (
               <p className="text-gray-400 text-center py-8">No hay respuestas pendientes de revisión.</p>
             )}
-            {pendingReview.map((p) => (
-              <div key={p.id} className="card">
-                <div className="flex flex-wrap gap-2 justify-between items-start">
-                  <div>
-                    <span className="font-semibold">{p.team_name}</span>
-                    <span className="text-gray-400 text-sm ml-2">→ Puzzle: {p.puzzle_title}</span>
+            {pendingReview.map((p) => {
+              // Detectar si es un check-in GPS
+              let gpsData = null;
+              try {
+                const parsed = JSON.parse(p.submitted_answer);
+                if (parsed?.type === 'gps_checkin') gpsData = parsed;
+              } catch {}
+
+              return (
+                <div key={p.id} className={`card ${gpsData ? 'border-blue-200' : ''}`}>
+                  <div className="flex flex-wrap gap-2 justify-between items-start">
+                    <div>
+                      <span className="font-semibold">{p.team_name}</span>
+                      <span className="text-gray-400 text-sm ml-2">→ {p.puzzle_title}</span>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      {gpsData && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                          📍 GPS
+                        </span>
+                      )}
+                      <StatusBadge status={p.status} />
+                    </div>
                   </div>
-                  <StatusBadge status={p.status} />
+
+                  {gpsData ? (
+                    <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                      <p className="text-sm font-semibold text-blue-800">
+                        ¡El equipo ha llegado al punto!
+                      </p>
+                      <p className="text-xs text-blue-600 mt-1">
+                        Distancia al llegar: <strong>{gpsData.distance} m</strong>
+                        {' · '}
+                        Coords: {gpsData.lat}, {gpsData.lng}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString('es-ES') : ''}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-2 bg-amber-50 rounded-lg px-3 py-2">
+                      <p className="text-sm text-gray-500 mb-1">Respuesta enviada:</p>
+                      <p className="font-mono font-bold text-lg">{p.submitted_answer}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString('es-ES') : ''}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      className="btn-success"
+                      disabled={reviewing[p.id]}
+                      onClick={() => handleReview(p.id, 'approve')}
+                    >
+                      ✓ Aprobar
+                    </button>
+                    <button
+                      className="btn-danger"
+                      disabled={reviewing[p.id]}
+                      onClick={() => handleReview(p.id, 'reject')}
+                    >
+                      ✗ Rechazar
+                    </button>
+                  </div>
                 </div>
-                <div className="mt-2 bg-amber-50 rounded-lg px-3 py-2">
-                  <p className="text-sm text-gray-500 mb-1">Respuesta enviada:</p>
-                  <p className="font-mono font-bold text-lg">{p.submitted_answer}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString('es-ES') : ''}
-                  </p>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    className="btn-success"
-                    disabled={reviewing[p.id]}
-                    onClick={() => handleReview(p.id, 'approve')}
-                  >
-                    ✓ Aprobar
-                  </button>
-                  <button
-                    className="btn-danger"
-                    disabled={reviewing[p.id]}
-                    onClick={() => handleReview(p.id, 'reject')}
-                  >
-                    ✗ Rechazar
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

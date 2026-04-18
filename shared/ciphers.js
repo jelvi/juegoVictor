@@ -129,8 +129,26 @@ const gps = {
   },
 };
 
+// ─── Trivia ───────────────────────────────────────────────────────────────────
+// No cifra texto. La config del puzzle contiene: mode, questionsPerTeam, selectionMode.
+// La validación es automática en el servidor (sin revisión del admin).
+const trivia = {
+  encode(_text, config) {
+    const n = config.questionsPerTeam || '?';
+    const modeLabel = {
+      multiple:  'opción múltiple',
+      truefalse: 'verdadero/falso',
+      open:      'respuesta abierta',
+    }[config.mode] || 'preguntas';
+    return `${n} preguntas · ${modeLabel}`;
+  },
+  generateHintMaterial(_config) {
+    return { type: 'trivia' };
+  },
+};
+
 // ─── Registro ─────────────────────────────────────────────────────────────────
-export const CIPHER_REGISTRY = { cesar, morse, mirror, emoji, number_letter, gps };
+export const CIPHER_REGISTRY = { cesar, morse, mirror, emoji, number_letter, gps, trivia };
 
 export function listTypes() {
   return Object.keys(CIPHER_REGISTRY);

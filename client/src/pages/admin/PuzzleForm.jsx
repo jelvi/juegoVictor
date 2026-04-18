@@ -9,6 +9,7 @@ const TYPE_LABELS = {
   emoji:         'Emojis',
   number_letter: 'Número-letra',
   gps:           'GPS (búsqueda por localización)',
+  trivia:        'Trivia (preguntas y respuestas)',
 };
 
 const DEFAULT_EMOJI_MAP = {
@@ -33,6 +34,13 @@ function buildConfig(type, fields) {
       lng:    Number(fields.gpsLng),
       radius: Number(fields.gpsRadius) || 15,
     };
+    case 'trivia':        return {
+      mode:            fields.triviaMode,
+      questionsPerTeam: Number(fields.triviaQPT) || 5,
+      selectionMode:   fields.triviaSelMode,
+      categoryId:      fields.triviaCatId ? Number(fields.triviaCatId) : null,
+      difficulty:      fields.triviaDiff  || null,
+    };
     default:              return {};
   }
 }
@@ -56,9 +64,26 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
   const [gpsRadius, setGpsRadius] = useState(puzzle?.config?.radius  ?? 15);
   const [gpsLocating, setGpsLocating] = useState(false);
 
+  // Trivia
+  const [triviaMode,   setTriviaMode]   = useState(puzzle?.config?.mode            || 'multiple');
+  const [triviaQPT,    setTriviaQPT]    = useState(puzzle?.config?.questionsPerTeam || 5);
+  const [triviaSelMode,setTriviaSelMode]= useState(puzzle?.config?.selectionMode   || 'manual');
+  const [triviaCatId,  setTriviaCatId]  = useState(puzzle?.config?.categoryId      || '');
+  const [triviaDiff,   setTriviaDiff]   = useState(puzzle?.config?.difficulty      || '');
+  const [triviaCategories, setTriviaCategories] = useState([]);
+
   const [preview, setPreview]     = useState('');
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
+
+  // Cargar categorías para trivia
+  useEffect(() => {
+    if (type === 'trivia') {
+      import('../../utils/api').then(({ api }) =>
+        api.get('/questions/categories').then(setTriviaCategories).catch(() => {})
+      );
+    }
+  }, [type]);
 
   // Actualizar preview en tiempo real
   useEffect(() => {
@@ -66,12 +91,17 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
       setPreview(gpsHint || '');
       return;
     }
+    if (type === 'trivia') {
+      const modeLabel = { multiple:'opción múltiple', truefalse:'verdadero/falso', open:'respuesta abierta' }[triviaMode] || '';
+      setPreview(`${triviaQPT} preguntas · ${modeLabel}`);
+      return;
+    }
     if (!solution) { setPreview(''); return; }
     try {
       const cfg = buildConfig(type, { shift, startNumber, emojiMap });
       setPreview(clientEncode(type, solution, cfg));
     } catch { setPreview(''); }
-  }, [type, solution, shift, startNumber, emojiMap, gpsHint]);
+  }, [type, solution, shift, startNumber, emojiMap, gpsHint, triviaMode, triviaQPT]);
 
   async function useMyLocation() {
     if (!navigator.geolocation) { setError('GPS no disponible en este dispositivo.'); return; }
@@ -101,9 +131,11 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
       }
     }
 
-    const config = buildConfig(type, { shift, startNumber, emojiMap, gpsHint, gpsLat, gpsLng, gpsRadius });
-    // Para GPS la "solución" es un sentinel — la validación real es por proximidad
-    const effectiveSolution = type === 'gps' ? 'GPS_LOCATION' : solution;
+    const config = buildConfig(type, { shift, startNumber, emojiMap, gpsHint, gpsLat, gpsLng, gpsRadius,
+      triviaMode, triviaQPT, triviaSelMode, triviaCatId, triviaDiff });
+    const effectiveSolution =
+      type === 'gps'    ? 'GPS_LOCATION' :
+      type === 'trivia' ? 'TRIVIA'       : solution;
     const body = { title, description, type, config, solution: effectiveSolution, order_index: Number(orderIndex) };
 
     try {
@@ -245,8 +277,70 @@ export default function PuzzleForm({ gameId, puzzle, onSaved, onCancel }) {
         </div>
       )}
 
-      {/* Solución para tipos no-GPS */}
-      {type !== 'gps' && (
+      {/* Campos trivia */}
+      {type === 'trivia' && (
+        <div className="space-y-3 bg-purple-50 border border-purple-200 rounded-xl p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Modo</label>
+              <select className="input" value={triviaMode} onChange={(e) => setTriviaMode(e.target.value)}>
+                <option value="multiple">Opción múltiple</option>
+                <option value="truefalse">Verdadero / Falso</option>
+                <option value="open">Respuesta abierta</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Nº de preguntas</label>
+              <input
+                type="number" min={1} max={50}
+                className="input"
+                value={triviaQPT}
+                onChange={(e) => setTriviaQPT(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Selección de preguntas</label>
+            <select className="input" value={triviaSelMode} onChange={(e) => setTriviaSelMode(e.target.value)}>
+              <option value="manual">Manual (elegir del pool)</option>
+              <option value="random">Aleatoria del pool</option>
+            </select>
+          </div>
+
+          {triviaSelMode === 'random' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Filtrar por categoría</label>
+                <select className="input" value={triviaCatId} onChange={(e) => setTriviaCatId(e.target.value)}>
+                  <option value="">Cualquier categoría</option>
+                  {triviaCategories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Filtrar por dificultad</label>
+                <select className="input" value={triviaDiff} onChange={(e) => setTriviaDiff(e.target.value)}>
+                  <option value="">Cualquier dificultad</option>
+                  <option value="easy">Fácil</option>
+                  <option value="medium">Media</option>
+                  <option value="hard">Difícil</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {triviaSelMode === 'manual' && (
+            <p className="text-xs text-purple-600">
+              💡 Después de guardar el puzzle, asigna las preguntas desde el botón "Preguntas" en la lista.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Solución para tipos no-GPS y no-trivia */}
+      {type !== 'gps' && type !== 'trivia' && (
         <div>
           <label className="label">Solución (texto en claro)</label>
           <input className="input" value={solution} onChange={(e) => setSolution(e.target.value)} required />

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import HintMaterial from '../../components/HintMaterial';
 import GpsCompass from '../../components/GpsCompass';
+import PuzzleTrivia from '../../components/PuzzleTrivia';
 import { api } from '../../utils/api';
 import { usePolling } from '../../hooks/usePolling';
 
@@ -12,6 +13,7 @@ const TYPE_LABELS = {
   emoji:         '🎭 Emojis',
   number_letter: '🔢 Número-Letra',
   gps:           '📍 Búsqueda GPS',
+  trivia:        '🧠 Trivia',
 };
 
 const STATUS_MESSAGES = {
@@ -155,11 +157,12 @@ export default function GamePage() {
     );
   }
 
-  const { puzzle, progress } = current;
+  const { puzzle, progress, triviaState } = current;
   const progressStatus = progress?.status;
   const statusInfo = STATUS_MESSAGES[progressStatus];
   const canSubmit = !progressStatus || progressStatus === 'rejected';
-  const isGps = puzzle.type === 'gps';
+  const isGps    = puzzle.type === 'gps';
+  const isTrivia = puzzle.type === 'trivia';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
@@ -211,7 +214,16 @@ export default function GamePage() {
             )}
           </div>
 
-          {isGps ? (
+          {isTrivia ? (
+            /* ── Vista Trivia ──────────────────────────────────────── */
+            <PuzzleTrivia
+              puzzle={puzzle}
+              triviaState={triviaState}
+              teamId={teamId}
+              progressStatus={progressStatus}
+              onRefresh={loadCurrent}
+            />
+          ) : isGps ? (
             /* ── Vista GPS ─────────────────────────────────────────── */
             <>
               {/* Pista escrita */}
@@ -248,16 +260,16 @@ export default function GamePage() {
           )}
         </div>
 
-        {/* Estado de la respuesta */}
-        {statusInfo && (
+        {/* Estado de la respuesta (no para trivia — gestiona su propio estado) */}
+        {statusInfo && !isTrivia && (
           <div className={`rounded-xl border p-3 flex items-center gap-2 ${statusInfo.color}`}>
             <span className="text-xl">{statusInfo.icon}</span>
             <p className="text-sm font-medium">{statusInfo.text}</p>
           </div>
         )}
 
-        {/* Acción según tipo */}
-        {canSubmit && (
+        {/* Acción según tipo (no para trivia — tiene sus propios botones) */}
+        {canSubmit && !isTrivia && (
           isGps ? (
             /* Botón GPS */
             <div className="card space-y-3 text-center">

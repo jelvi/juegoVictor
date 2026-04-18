@@ -67,6 +67,47 @@ CREATE TABLE IF NOT EXISTS team_progress (
   UNIQUE (team_id, puzzle_id)
 );
 
+-- ============================================================
+-- Trivia — Schema v2 (añadido)
+-- ============================================================
+
+-- Categorías de preguntas (pool global, independiente del juego)
+CREATE TABLE IF NOT EXISTS question_categories (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Pool de preguntas
+CREATE TABLE IF NOT EXISTS questions (
+  id             SERIAL PRIMARY KEY,
+  category_id    INTEGER REFERENCES question_categories(id) ON DELETE SET NULL,
+  question_text  TEXT NOT NULL,
+  correct_answer TEXT NOT NULL,
+  wrong_answers  JSONB NOT NULL DEFAULT '[]',
+  difficulty     VARCHAR(10) NOT NULL DEFAULT 'medium'
+                   CHECK (difficulty IN ('easy', 'medium', 'hard')),
+  source         VARCHAR(20) NOT NULL DEFAULT 'admin'
+                   CHECK (source IN ('admin', 'imported')),
+  reviewed       BOOLEAN NOT NULL DEFAULT false,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Preguntas asignadas a un puzzle de tipo trivia
+CREATE TABLE IF NOT EXISTS game_questions (
+  id           SERIAL PRIMARY KEY,
+  game_id      INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  puzzle_id    INTEGER NOT NULL REFERENCES puzzles(id) ON DELETE CASCADE,
+  question_id  INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  order_index  INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (puzzle_id, question_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gq_puzzle       ON game_questions(puzzle_id);
+CREATE INDEX IF NOT EXISTS idx_gq_game         ON game_questions(game_id);
+CREATE INDEX IF NOT EXISTS idx_questions_cat   ON questions(category_id);
+CREATE INDEX IF NOT EXISTS idx_questions_rev   ON questions(reviewed);
+
 -- Índices útiles
 CREATE INDEX IF NOT EXISTS idx_teams_game      ON teams(game_id);
 CREATE INDEX IF NOT EXISTS idx_puzzles_game    ON puzzles(game_id, order_index);

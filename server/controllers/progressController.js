@@ -147,4 +147,64 @@ async function getRanking(req, res) {
   res.json(rows);
 }
 
-module.exports = { gpsCheckin, submitAnswer, reviewAnswer, getGameProgress, getRanking };
+// ─── Trivia: respuesta automática ─────────────────────────────────────────────
+async function triviaAnswer(req, res) {
+  const { teamId, puzzleId } = req.params;
+  const { questionId, answer } = req.body;
+  if (answer == null) return res.status(400).json({ error: 'answer es obligatorio' });
+
+  // Verificar que la pregunta está asignada a este puzzle
+  const qRes = await pool.query(
+    `SELECT q.correct_answer FROM game_questions gq
+     JOIN questions q ON q.id = gq.question_id
+     WHERE gq.puzzle_id = $1 AND gq.question_id = $2`,
+    [puzzleId, questionId]
+  );
+  if (!qRes.rows[0]) return res.status(404).json({ error: 'Pregunta no asignada a este puzzle' });
+  const correctAnswer = qRes.rows[0].correct_answer;
+
+  const correct = answer.trim().toUpperCase() === correctAnswer.trim().toUpperCase();
+
+  // Obtener respuestas previas del equipo en este puzzle
+  const existing = await pool.query(
+    'SELECT * FROM team_progress WHERE team_id=$1 AND puzzle_id=$2',
+    [teamId, puzzleId]
+  );
+  let answers = [];
+  try {
+    if (existing.rows[0]?.submitted_answer) {
+      answers = JSON.parse(existing.rows[0].submitted_answer);
+    }
+  } catch {}
+
+  // No duplicar si ya respondió esta pregunta
+  if (!answers.find((a) => a.question_id === Number(questionId))) {
+    answers.push({
+      question_id:    Number(questionId),
+      answer,
+      correct,
+      correct_answer: correct ? undefined : correctAnswer,
+    });
+  }
+
+  // ¿Está completo? Comparar con total de preguntas asignadas
+  const totalRes = await pool.query(
+    'SELECT COUNT(*) FROM game_questions WHERE puzzle_id=$1', [puzzleId]
+  );
+  const total     = parseInt(totalRes.rows[0].count);
+  const completed = answers.length >= total;
+  const status    = completed ? 'approved' : 'pending';
+
+  await pool.query(
+    `INSERT INTO team_progress (team_id, puzzle_id, status, submitted_answer, submitted_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (team_id, puzzle_id)
+     DO UPDATE SET status=$3, submitted_answer=$4, submitted_at=NOW(),
+       reviewed_at = CASE WHEN $3='approved' THEN NOW() ELSE NULL END`,
+    [teamId, puzzleId, status, JSON.stringify(answers)]
+  );
+
+  res.json({ correct, correctAnswer: correct ? null : correctAnswer, completed });
+}
+
+module.exports = { gpsCheckin, submitAnswer, reviewAnswer, getGameProgress, getRanking, triviaAnswer };

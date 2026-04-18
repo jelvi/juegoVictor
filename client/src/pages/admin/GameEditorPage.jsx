@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+// useCallback ya importado arriba — también se usa en TriviaQuestionPicker
 import { useParams, Link } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import StatusBadge from '../../components/StatusBadge';
 import PuzzleForm from './PuzzleForm';
 import PuzzlePreview from './PuzzlePreview';
+import PanelPreguntas from './PanelPreguntas';
 import { api } from '../../utils/api';
 
 const STATUS_TRANSITIONS = {
@@ -127,15 +129,19 @@ export default function GameEditorPage({ auth }) {
         {error && <p className="text-red-600 text-sm">{error}</p>}
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-amber-200">
-          {['equipos', 'puzzles'].map((t) => (
+        <div className="flex gap-1 border-b border-amber-200 overflow-x-auto">
+          {[
+            { key: 'equipos',   label: `Equipos (${teams.length})` },
+            { key: 'puzzles',   label: `Puzzles (${puzzles.length})` },
+            { key: 'preguntas', label: '🧠 Preguntas' },
+          ].map((t) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 font-medium capitalize text-sm rounded-t-lg transition-colors
-                ${tab === t ? 'bg-white border border-b-white border-amber-200 -mb-px text-primary-600' : 'text-gray-500 hover:text-gray-700'}`}
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-2 font-medium text-sm whitespace-nowrap rounded-t-lg transition-colors
+                ${tab === t.key ? 'bg-white border border-b-white border-amber-200 -mb-px text-primary-600' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {t === 'equipos' ? `Equipos (${teams.length})` : `Puzzles (${puzzles.length})`}
+              {t.label}
             </button>
           ))}
         </div>
@@ -222,17 +228,30 @@ export default function GameEditorPage({ auth }) {
                     <span className="text-xs text-gray-400 mr-2">#{p.order_index + 1}</span>
                     <span className="font-semibold">{p.title}</span>
                     <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{p.type}</span>
+                    {p.type === 'trivia' && (
+                      <span className="ml-1 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                        {p.question_count ?? 0} preguntas asignadas
+                      </span>
+                    )}
                     {p.description && <p className="text-sm text-gray-500 mt-1">{p.description}</p>}
                     <p className="text-xs text-gray-400 mt-1 font-mono">
-                      Texto: {p.config?.encodedText}
+                      {p.config?.encodedText}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap justify-end">
+                    {p.type === 'trivia' && p.config?.selectionMode === 'manual' && (
+                      <button
+                        className="text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1 rounded-lg"
+                        onClick={() => setPreviewPuzzle(previewPuzzle?.id === p.id && previewPuzzle?._triviaManager ? null : { ...p, _triviaManager: true })}
+                      >
+                        🧠 Preguntas
+                      </button>
+                    )}
                     <button
                       className="btn-secondary text-xs"
-                      onClick={() => setPreviewPuzzle(previewPuzzle?.id === p.id ? null : p)}
+                      onClick={() => setPreviewPuzzle(previewPuzzle?.id === p.id && !previewPuzzle?._triviaManager ? null : p)}
                     >
-                      {previewPuzzle?.id === p.id ? 'Ocultar' : 'Vista previa'}
+                      {previewPuzzle?.id === p.id && !previewPuzzle?._triviaManager ? 'Ocultar' : 'Vista previa'}
                     </button>
                     <button
                       className="btn-secondary text-xs"
@@ -242,16 +261,123 @@ export default function GameEditorPage({ auth }) {
                     </button>
                   </div>
                 </div>
-                {previewPuzzle?.id === p.id && (
+                {previewPuzzle?.id === p.id && !previewPuzzle?._triviaManager && (
                   <div className="mt-4 border-t border-amber-100 pt-4">
                     <PuzzlePreview puzzle={p} />
+                  </div>
+                )}
+                {previewPuzzle?.id === p.id && previewPuzzle?._triviaManager && (
+                  <div className="mt-4 border-t border-purple-100 pt-4">
+                    <TriviaQuestionPicker puzzleId={p.id} />
                   </div>
                 )}
               </div>
             ))}
           </div>
         )}
+
+        {/* Preguntas */}
+        {tab === 'preguntas' && <PanelPreguntas />}
       </main>
+    </div>
+  );
+}
+
+// ─── Picker de preguntas para puzzle trivia ────────────────────────────────────
+function TriviaQuestionPicker({ puzzleId }) {
+  const [assigned,    setAssigned]    = useState([]);
+  const [pool,        setPool]        = useState([]);
+  const [categories,  setCategories]  = useState([]);
+  const [filterCat,   setFilterCat]   = useState('');
+  const [filterDiff,  setFilterDiff]  = useState('');
+  const [search,      setSearch]      = useState('');
+  const [loading,     setLoading]     = useState(false);
+
+  const loadAssigned = useCallback(async () => {
+    const rows = await api.get(`/puzzles/${puzzleId}/questions`);
+    setAssigned(rows);
+  }, [puzzleId]);
+
+  const loadPool = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ reviewed: true });
+    if (filterCat)  params.set('category',  filterCat);
+    if (filterDiff) params.set('difficulty', filterDiff);
+    if (search)     params.set('search',     search);
+    const [qs, cats] = await Promise.all([
+      api.get(`/questions?${params}`),
+      api.get('/questions/categories'),
+    ]);
+    setPool(qs);
+    setCategories(cats);
+    setLoading(false);
+  }, [filterCat, filterDiff, search]);
+
+  useEffect(() => { loadAssigned(); }, [loadAssigned]);
+  useEffect(() => { loadPool(); }, [loadPool]);
+
+  const assignedIds = new Set(assigned.map((q) => q.question_id ?? q.id));
+
+  async function handleAdd(questionId) {
+    await api.post(`/puzzles/${puzzleId}/questions`, { question_id: questionId });
+    loadAssigned();
+  }
+
+  async function handleRemove(questionId) {
+    await api.delete(`/puzzles/${puzzleId}/questions/${questionId}`);
+    loadAssigned();
+  }
+
+  return (
+    <div className="space-y-4">
+      <h4 className="font-bold text-purple-800">Preguntas asignadas ({assigned.length})</h4>
+
+      {assigned.length === 0 && (
+        <p className="text-gray-400 text-sm">Sin preguntas asignadas aún.</p>
+      )}
+      {assigned.map((q, i) => (
+        <div key={q.id ?? q.question_id} className="flex items-start gap-2 bg-purple-50 rounded-lg p-2">
+          <span className="text-xs text-purple-400 mt-1 shrink-0">{i + 1}.</span>
+          <p className="text-sm flex-1">{q.question_text}</p>
+          <button
+            className="text-xs text-red-500 hover:text-red-700 shrink-0"
+            onClick={() => handleRemove(q.question_id ?? q.id)}
+          >✗</button>
+        </div>
+      ))}
+
+      <hr className="border-purple-100" />
+      <h4 className="font-bold text-gray-600 text-sm">Añadir del pool</h4>
+
+      <div className="flex gap-2 flex-wrap">
+        <input className="input flex-1 min-w-28 text-sm" placeholder="Buscar…"
+          value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select className="input w-36 text-sm" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
+          <option value="">Categoría</option>
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select className="input w-32 text-sm" value={filterDiff} onChange={(e) => setFilterDiff(e.target.value)}>
+          <option value="">Dificultad</option>
+          <option value="easy">Fácil</option>
+          <option value="medium">Media</option>
+          <option value="hard">Difícil</option>
+        </select>
+      </div>
+
+      {loading && <p className="text-gray-400 text-sm text-center">Cargando…</p>}
+      <div className="space-y-1 max-h-64 overflow-y-auto">
+        {pool
+          .filter((q) => !assignedIds.has(q.id))
+          .map((q) => (
+            <div key={q.id} className="flex items-start gap-2 hover:bg-gray-50 rounded-lg p-2">
+              <p className="text-sm flex-1">{q.question_text}</p>
+              <button
+                className="text-xs text-green-600 hover:text-green-800 shrink-0 font-bold"
+                onClick={() => handleAdd(q.id)}
+              >+ Añadir</button>
+            </div>
+          ))}
+      </div>
     </div>
   );
 }

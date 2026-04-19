@@ -18,65 +18,78 @@ async function listPuzzles(req, res) {
 
 // ─── Admin: crear puzzle ──────────────────────────────────────────────────────
 async function createPuzzle(req, res) {
-  const { encode, generateHintMaterial, listTypes } = await ciphers();
-  const { title, description, type, config, solution, order_index } = req.body;
+  try {
+    const { encode, generateHintMaterial, listTypes } = await ciphers();
+    const { title, description, type, config, solution, order_index } = req.body;
 
-  if (!title || !type || !solution) {
-    return res.status(400).json({ error: 'title, type y solution son obligatorios' });
+    if (!title || !type || !solution) {
+      return res.status(400).json({ error: 'title, type y solution son obligatorios' });
+    }
+    if (!listTypes().includes(type)) {
+      return res.status(400).json({ error: `Tipo desconocido. Válidos: ${listTypes().join(', ')}` });
+    }
+
+    const cfg = config || {};
+    const hintMaterial = generateHintMaterial(type, cfg);
+    const encodedText  = encode(type, solution, cfg);
+    const fullConfig   = { ...cfg, encodedText };
+
+    const { rows } = await pool.query(
+      `INSERT INTO puzzles (game_id, order_index, title, description, type, config, solution, hint_material)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [
+        req.params.id, order_index ?? 0, title, description || '',
+        type, JSON.stringify(fullConfig), solution, JSON.stringify(hintMaterial),
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
   }
-  if (!listTypes().includes(type)) {
-    return res.status(400).json({ error: `Tipo desconocido. Válidos: ${listTypes().join(', ')}` });
-  }
-
-  const cfg = config || {};
-  const hintMaterial = generateHintMaterial(type, cfg);
-  const encodedText  = encode(type, solution, cfg);
-  const fullConfig   = { ...cfg, encodedText };
-
-  const { rows } = await pool.query(
-    `INSERT INTO puzzles (game_id, order_index, title, description, type, config, solution, hint_material)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [
-      req.params.id, order_index ?? 0, title, description || '',
-      type, JSON.stringify(fullConfig), solution, JSON.stringify(hintMaterial),
-    ]
-  );
-  res.status(201).json(rows[0]);
 }
 
 // ─── Admin: editar puzzle ─────────────────────────────────────────────────────
 async function updatePuzzle(req, res) {
-  const { encode, generateHintMaterial, listTypes } = await ciphers();
-  const { title, description, type, config, solution, order_index } = req.body;
+  try {
+    const { encode, generateHintMaterial, listTypes } = await ciphers();
+    const { title, description, type, config, solution, order_index } = req.body;
 
-  const existing = await pool.query('SELECT * FROM puzzles WHERE id = $1', [req.params.id]);
-  if (!existing.rows[0]) return res.status(404).json({ error: 'Puzzle no encontrado' });
-  const puzzle = existing.rows[0];
+    const existing = await pool.query('SELECT * FROM puzzles WHERE id = $1', [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ error: 'Puzzle no encontrado' });
+    const puzzle = existing.rows[0];
 
-  const newType     = type     ?? puzzle.type;
-  const newSolution = solution ?? puzzle.solution;
-  const newConfig   = config   ?? puzzle.config;
+    const newType     = type     ?? puzzle.type;
+    const newSolution = solution ?? puzzle.solution;
+    const newConfig   = config   ?? puzzle.config;
 
-  if (!listTypes().includes(newType)) {
-    return res.status(400).json({ error: `Tipo desconocido. Válidos: ${listTypes().join(', ')}` });
+    if (!listTypes().includes(newType)) {
+      return res.status(400).json({ error: `Tipo desconocido. Válidos: ${listTypes().join(', ')}` });
+    }
+
+    const hintMaterial = generateHintMaterial(newType, newConfig);
+    const encodedText  = encode(newType, newSolution, newConfig);
+    const fullConfig   = { ...newConfig, encodedText };
+
+    const { rows } = await pool.query(
+      `UPDATE puzzles SET title=$1, description=$2, type=$3, config=$4,
+         solution=$5, hint_material=$6, order_index=$7
+       WHERE id=$8 RETURNING *`,
+      [
+        title ?? puzzle.title, description ?? puzzle.description,
+        newType, JSON.stringify(fullConfig), newSolution,
+        JSON.stringify(hintMaterial), order_index ?? puzzle.order_index,
+        req.params.id,
+      ]
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    if (e.code === '23505') {
+      return res.status(409).json({ error: 'Ya existe otro puzzle con ese número de orden. Usa un número diferente.' });
+    }
+    res.status(500).json({ error: e.message });
   }
-
-  const hintMaterial = generateHintMaterial(newType, newConfig);
-  const encodedText  = encode(newType, newSolution, newConfig);
-  const fullConfig   = { ...newConfig, encodedText };
-
-  const { rows } = await pool.query(
-    `UPDATE puzzles SET title=$1, description=$2, type=$3, config=$4,
-       solution=$5, hint_material=$6, order_index=$7
-     WHERE id=$8 RETURNING *`,
-    [
-      title ?? puzzle.title, description ?? puzzle.description,
-      newType, JSON.stringify(fullConfig), newSolution,
-      JSON.stringify(hintMaterial), order_index ?? puzzle.order_index,
-      req.params.id,
-    ]
-  );
-  res.json(rows[0]);
 }
 
 // ─── Equipo: obtener puzzle actual ────────────────────────────────────────────
@@ -196,22 +209,23 @@ async function assignRandomQuestions(puzzleId, gameId, cfg) {
   const categoryId = cfg.categoryId  || null;
   const difficulty = cfg.difficulty  || null;
 
-  const params   = [gameId, n];
-  const filters  = [];
+  // $1=puzzleId  $2=gameId  $3=n  (+ opcionales $4, $5 para filtros)
+  const params  = [puzzleId, gameId, n];
+  const filters = [];
   if (categoryId) { params.push(categoryId); filters.push(`q.category_id = $${params.length}`); }
   if (difficulty) { params.push(difficulty); filters.push(`q.difficulty  = $${params.length}`); }
   const where = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
-  // Excluir preguntas ya usadas en otros puzzles del mismo juego
+  // Excluir preguntas ya usadas en OTROS puzzles del mismo juego
   const { rows: picked } = await pool.query(
     `SELECT q.id
      FROM questions q
      WHERE q.reviewed = true ${where}
        AND q.id NOT IN (
-         SELECT question_id FROM game_questions WHERE game_id = $1 AND puzzle_id != $${params.indexOf(gameId) + 1}
+         SELECT question_id FROM game_questions WHERE game_id = $2 AND puzzle_id != $1
        )
      ORDER BY RANDOM()
-     LIMIT $2`,
+     LIMIT $3`,
     params
   );
 

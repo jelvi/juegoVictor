@@ -50,8 +50,7 @@ CREATE TABLE IF NOT EXISTS puzzles (
   config         JSONB NOT NULL DEFAULT '{}',
   solution       TEXT NOT NULL,
   hint_material  JSONB NOT NULL DEFAULT '{}',
-  created_at     TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (game_id, order_index)
+  created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Progreso por equipo
